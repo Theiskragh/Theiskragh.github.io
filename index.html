@@ -1,47 +1,199 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Academic Profile</title>
-    <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Academic Profile – Theiskragh</title>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-    <header>
-        <h1>Your Name</h1>
-        <nav>
-            <ul>
-                <li><a href="#about">About</a></li>
-                <li><a href="#research">Research Interests</a></li>
-                <li><a href="#publications">Publications</a></li>
-                <li><a href="#contact">Contact</a></li>
-            </ul>
-        </nav>
-    </header>
-    <main>
-        <section id="about">
-            <h2>About</h2>
-            <p>Welcome to my academic profile! I am a professor/researcher at XYZ University. My research focuses on ...</p>
-        </section>
-        <section id="research">
-            <h2>Research Interests</h2>
-            <p>My research interests include...</p>
-        </section>
-        <section id="publications">
-            <h2>Publications</h2>
-            <ul>
-                <li><a href="#">Title of Publication 1</a></li>
-                <li><a href="#">Title of Publication 2</a></li>
-                <li><a href="#">Title of Publication 3</a></li>
-            </ul>
-        </section>
-        <section id="contact">
-            <h2>Contact</h2>
-            <p>Email: <a href="mailto:your.email@example.com">your.email@example.com</a></p>
-        </section>
-    </main>
-    <footer>
-        <p>&copy; 2026 Your Name</p>
-    </footer>
+<div class="site-wrapper">
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header>
+    <div class="container">
+      <span class="site-title">Theiskragh</span>
+      <nav aria-label="Site navigation">
+        <ul>
+          <li><a href="#about">About</a></li>
+          <li><a href="#publications">Publications</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ── Main ────────────────────────────────────────────────────────────── -->
+  <main>
+    <div class="container">
+
+      <!-- About -->
+      <section id="about" aria-labelledby="about-heading">
+        <h2 id="about-heading" class="section-title">About</h2>
+        <p>
+          Welcome to my academic profile. Below you'll find a list of my
+          publications automatically pulled from my
+          <a href="https://scholar.google.com/citations?user=IfJBsd0AAAAJ&hl=en"
+             target="_blank" rel="noopener noreferrer">Google Scholar profile</a>.
+        </p>
+      </section>
+
+      <!-- Publications -->
+      <section id="publications" aria-labelledby="pub-heading">
+        <h2 id="pub-heading" class="section-title">Publications</h2>
+
+        <div class="pub-controls" role="search">
+          <input
+            type="search"
+            id="pub-search"
+            placeholder="Search by title, author, or venue…"
+            aria-label="Search publications"
+          />
+          <select id="pub-year-filter" aria-label="Filter by year">
+            <option value="">All years</option>
+          </select>
+          <span id="pub-count" aria-live="polite"></span>
+        </div>
+
+        <ul id="pub-list" aria-label="Publication list">
+          <li class="state-msg" id="pub-loading">Loading publications…</li>
+        </ul>
+      </section>
+
+    </div><!-- /.container -->
+  </main>
+
+  <!-- ── Footer ──────────────────────────────────────────────────────────── -->
+  <footer>
+    <div class="container">
+      Publications data sourced from
+      <a href="https://scholar.google.com/citations?user=IfJBsd0AAAAJ&hl=en"
+         target="_blank" rel="noopener noreferrer">Google Scholar</a>
+      and updated automatically via GitHub Actions.
+      Last dataset update: <span id="data-updated">–</span>.
+    </div>
+  </footer>
+
+</div><!-- /.site-wrapper -->
+
+<script>
+(function () {
+  "use strict";
+
+  const PAPERS_URL = "data/papers.json";
+
+  // ── DOM refs ────────────────────────────────────────────────────────────────
+  const listEl     = document.getElementById("pub-list");
+  const searchEl   = document.getElementById("pub-search");
+  const yearEl     = document.getElementById("pub-year-filter");
+  const countEl    = document.getElementById("pub-count");
+  const updatedEl  = document.getElementById("data-updated");
+
+  // ── State ───────────────────────────────────────────────────────────────────
+  let allPapers = [];
+
+  // ── Fetch ───────────────────────────────────────────────────────────────────
+  fetch(PAPERS_URL + "?_=" + Date.now())
+    .then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(function (data) {
+      allPapers = (data.papers || []).slice();   // already sorted by the script
+      if (data.updated) updatedEl.textContent = data.updated;
+      populateYearFilter();
+      render();
+    })
+    .catch(function (err) {
+      listEl.innerHTML =
+        '<li class="state-msg">Could not load publications. ' +
+        "Please try again later or visit the " +
+        '<a href="https://scholar.google.com/citations?user=IfJBsd0AAAAJ&hl=en" ' +
+        'target="_blank" rel="noopener noreferrer">Google Scholar profile</a> directly.' +
+        "</li>";
+      console.error("Failed to load papers.json:", err);
+    });
+
+  // ── Year filter options ─────────────────────────────────────────────────────
+  function populateYearFilter() {
+    var years = [];
+    allPapers.forEach(function (p) {
+      if (p.year && years.indexOf(p.year) === -1) years.push(p.year);
+    });
+    years.sort(function (a, b) { return b - a; });
+    years.forEach(function (y) {
+      var opt = document.createElement("option");
+      opt.value = y;
+      opt.textContent = y;
+      yearEl.appendChild(opt);
+    });
+  }
+
+  // ── Filter & render ─────────────────────────────────────────────────────────
+  function render() {
+    var query     = searchEl.value.trim().toLowerCase();
+    var yearFilter = yearEl.value;
+
+    var filtered = allPapers.filter(function (p) {
+      var matchYear = !yearFilter || String(p.year) === yearFilter;
+      if (!matchYear) return false;
+      if (!query) return true;
+      var haystack = [p.title, p.authors, p.venue].join(" ").toLowerCase();
+      return haystack.indexOf(query) !== -1;
+    });
+
+    countEl.textContent = filtered.length + " of " + allPapers.length + " papers";
+
+    if (filtered.length === 0) {
+      listEl.innerHTML =
+        '<li class="state-msg">No publications match your search.</li>';
+      return;
+    }
+
+    var html = "";
+    filtered.forEach(function (p) {
+      var year    = p.year   ? '<span class="pub-year">' + p.year + "</span>" : "";
+      var venue   = p.venue  ? '<span class="pub-venue">' + esc(p.venue) + "</span>" : "";
+      var cites   = (p.citations && p.citations > 0)
+                    ? '<span class="pub-citations">Cited by ' + p.citations + "</span>"
+                    : "";
+
+      var links = "";
+      if (p.scholar_url) {
+        links += '<a class="btn-link" href="' + esc(p.scholar_url) + '" ' +
+                 'target="_blank" rel="noopener noreferrer">Scholar</a>';
+      }
+      if (p.pdf_url) {
+        links += '<a class="btn-link pdf" href="' + esc(p.pdf_url) + '" ' +
+                 'target="_blank" rel="noopener noreferrer">PDF</a>';
+      }
+
+      html +=
+        '<li class="pub-item">' +
+          '<div class="pub-title">' + esc(p.title) + "</div>" +
+          '<div class="pub-authors">' + esc(p.authors) + "</div>" +
+          '<div class="pub-meta">' + venue + year + cites + "</div>" +
+          (links ? '<div class="pub-links">' + links + "</div>" : "") +
+        "</li>";
+    });
+
+    listEl.innerHTML = html;
+  }
+
+  // ── HTML escape helper ───────────────────────────────────────────────────────
+  function esc(str) {
+    if (!str) return "";
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  // ── Event listeners ─────────────────────────────────────────────────────────
+  searchEl.addEventListener("input",  render);
+  yearEl.addEventListener("change",   render);
+
+})();
+</script>
 </body>
 </html>
