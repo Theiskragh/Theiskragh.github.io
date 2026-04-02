@@ -1,47 +1,102 @@
 import json
 import argparse
+import time
 from datetime import date
-from scholarly import scholarly
+
+import requests
+
+SEMANTIC_SCHOLAR_BASE = "https://api.semanticscholar.org/graph/v1"
+AUTHOR_SEARCH_NAME = "Theis Kragh"
+HEADERS = {"User-Agent": "fetch_scholar/1.0 (academic-profile-site; contact via GitHub)"}
+TIMEOUT = 30
+MAX_RETRIES = 3
 
 
-DEFAULT_SCHOLAR_ID = "IfJBsd0AAAAJ"
+def _get(url, params=None):
+    """GET with retry logic (3 retries, exponential backoff)."""
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = requests.get(url, params=params, headers=HEADERS, timeout=TIMEOUT)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            if attempt < MAX_RETRIES - 1:
+                wait = 2 ** attempt
+                print(f"Request failed ({e}), retrying in {wait}s…")
+                time.sleep(wait)
+            else:
+                raise RuntimeError(f"Request failed after {MAX_RETRIES} attempts: {e}") from e
 
 
-def fetch_publications(scholar_id, max_pubs=None):
-    """Fetch publications for a Google Scholar author ID using the scholarly library."""
-    try:
-        author = scholarly.search_author_id(scholar_id)
-        author = scholarly.fill(author, sections=["publications"])
-    except Exception as e:
-        raise RuntimeError(f"Failed to fetch author profile for '{scholar_id}': {e}") from e
+def find_author_id(name):
+    """Search Semantic Scholar for an author by name and return the best match's authorId."""
+    data = _get(
+        f"{SEMANTIC_SCHOLAR_BASE}/author/search",
+        params={"query": name, "fields": "name,affiliations,paperCount"},
+    )
+    results = data.get("data", [])
+    if not results:
+        raise RuntimeError(f"No Semantic Scholar author found for '{name}'")
+    author = results[0]
+    print(f"Found author: {author.get('name')} (ID: {author.get('authorId')})")
+    return author["authorId"]
 
-    pubs = author.get("publications", [])
-    if max_pubs:
-        pubs = pubs[:max_pubs]
+
+def _paper_url(paper):
+    """Return the best available URL for a paper: DOI link > Semantic Scholar page > ''."""
+    doi = (paper.get("externalIds") or {}).get("DOI")
+    if doi:
+        return f"https://doi.org/{doi}"
+    paper_id = paper.get("paperId", "")
+    return f"https://www.semanticscholar.org/paper/{paper_id}" if paper_id else ""
+
+
+def fetch_publications(author_id, max_pubs=None):
+    """Fetch all papers for a Semantic Scholar author ID, with pagination."""
+    papers = []
+    offset = 0
+    limit = 100
+    fields = "title,authors,year,venue,citationCount,externalIds,openAccessPdf"
+
+    while True:
+        data = _get(
+            f"{SEMANTIC_SCHOLAR_BASE}/author/{author_id}/papers",
+            params={"fields": fields, "limit": limit, "offset": offset},
+        )
+        batch = data.get("data", [])
+        papers.extend(batch)
+
+        if max_pubs and len(papers) >= max_pubs:
+            papers = papers[:max_pubs]
+            break
+
+        if len(batch) < limit:
+            break
+
+        offset += limit
+        time.sleep(1)
 
     publications = []
-    for pub in pubs:
-        filled = scholarly.fill(pub)
-        bib = filled.get("bib", {})
+    for paper in papers:
+        scholar_url = _paper_url(paper)
 
-        year_raw = bib.get("pub_year")
-        year = int(year_raw) if year_raw and str(year_raw).isdigit() else None
+        open_access = paper.get("openAccessPdf") or {}
+        pdf_url = open_access.get("url", "")
 
-        venue = (
-            bib.get("venue")
-            or bib.get("journal")
-            or bib.get("booktitle")
-            or ""
-        )
+        authors_list = paper.get("authors") or []
+        authors_str = ", ".join(a.get("name", "") for a in authors_list)
+
+        year_raw = paper.get("year")
+        year = int(year_raw) if year_raw is not None else None
 
         entry = {
-            "title": bib.get("title", ""),
-            "authors": bib.get("author", ""),
+            "title": paper.get("title", ""),
+            "authors": authors_str,
             "year": year,
-            "venue": venue,
-            "citations": filled.get("num_citations", 0),
-            "scholar_url": filled.get("pub_url", ""),
-            "pdf_url": filled.get("eprint_url", ""),
+            "venue": paper.get("venue") or "",
+            "citations": paper.get("citationCount", 0),
+            "scholar_url": scholar_url,
+            "pdf_url": pdf_url,
         }
         publications.append(entry)
 
@@ -51,12 +106,15 @@ def fetch_publications(scholar_id, max_pubs=None):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Fetch publications from Google Scholar")
+    parser = argparse.ArgumentParser(description="Fetch publications from Semantic Scholar")
     parser.add_argument(
         "--scholar-id",
         dest="scholar_id",
-        default=DEFAULT_SCHOLAR_ID,
-        help="Google Scholar author ID (default: %(default)s)",
+        default=None,
+        help=(
+            "Semantic Scholar author ID. If omitted, the author is looked up by name "
+            f"'{AUTHOR_SEARCH_NAME}'."
+        ),
     )
     parser.add_argument(
         "--max-pubs",
@@ -70,10 +128,12 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    publications = fetch_publications(args.scholar_id, args.max_pubs)
+    author_id = args.scholar_id or find_author_id(AUTHOR_SEARCH_NAME)
+
+    publications = fetch_publications(author_id, args.max_pubs)
 
     output = {
-        "scholar_id": args.scholar_id,
+        "scholar_id": author_id,
         "updated": date.today().isoformat(),
         "papers": publications,
     }

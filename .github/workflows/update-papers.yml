@@ -31,13 +31,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
-      - name: Fetch papers from Google Scholar
-        env:
-          SCHOLAR_ID: "IfJBsd0AAAAJ"
-        run: python scripts/fetch_scholar.py --scholar-id "$SCHOLAR_ID" --output data/papers.json
-        # If the script exits non-zero (Scholar blocked, network error, etc.),
-        # the step fails but we continue so the site keeps serving cached data.
-        continue-on-error: true
+      - name: Fetch papers from Semantic Scholar
+        run: python scripts/fetch_scholar.py --output data/papers.json
 
       - name: Check for changes
         id: changes
