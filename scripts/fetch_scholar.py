@@ -1,32 +1,84 @@
-import requests
-import time
+import json
 import argparse
+from datetime import date
+from scholarly import scholarly
 
-# Function to fetch publication list
-# Optional max publications and handling for proxy timeout
 
-def fetch_publications(scholar_id, max_pubs=None, timeout=10):
-    url = f'https://scholar.google.com/scholar?hl=en&as_sdt=0%2C5&q={scholar_id}&btnG='
-    publications = []
+DEFAULT_SCHOLAR_ID = "IfJBsd0AAAAJ"
+
+
+def fetch_publications(scholar_id, max_pubs=None):
+    """Fetch publications for a Google Scholar author ID using the scholarly library."""
     try:
-        response = requests.get(url, timeout=timeout)
-        # Ensure the request is successful
-        response.raise_for_status()
-        # Parsing logic here
-        # ...
-        # Limit the number of publications if max_pubs is set
-        if max_pubs:
-            publications = publications[:max_pubs]
-    except requests.Timeout:
-        print("Timeout occurred, please try again later.")
+        author = scholarly.search_author_id(scholar_id)
+        author = scholarly.fill(author, sections=["publications"])
     except Exception as e:
-        print(f"An error occurred: {e}")
+        raise RuntimeError(f"Failed to fetch author profile for '{scholar_id}': {e}") from e
+
+    pubs = author.get("publications", [])
+    if max_pubs:
+        pubs = pubs[:max_pubs]
+
+    publications = []
+    for pub in pubs:
+        filled = scholarly.fill(pub)
+        bib = filled.get("bib", {})
+
+        year_raw = bib.get("pub_year")
+        year = int(year_raw) if year_raw and str(year_raw).isdigit() else None
+
+        venue = (
+            bib.get("venue")
+            or bib.get("journal")
+            or bib.get("booktitle")
+            or ""
+        )
+
+        entry = {
+            "title": bib.get("title", ""),
+            "authors": bib.get("author", ""),
+            "year": year,
+            "venue": venue,
+            "citations": filled.get("num_citations", 0),
+            "scholar_url": filled.get("pub_url", ""),
+            "pdf_url": filled.get("eprint_url", ""),
+        }
+        publications.append(entry)
+
+    # Sort by year descending, unknown years last
+    publications.sort(key=lambda p: p["year"] if p["year"] is not None else -1, reverse=True)
     return publications
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--scholar_id', required=True, help='Google Scholar ID')
-    parser.add_argument('--max-pubs', type=int, help='Maximum number of publications to fetch')
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Fetch publications from Google Scholar")
+    parser.add_argument(
+        "--scholar-id",
+        dest="scholar_id",
+        default=DEFAULT_SCHOLAR_ID,
+        help="Google Scholar author ID (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--max-pubs",
+        type=int,
+        help="Maximum number of publications to fetch",
+    )
+    parser.add_argument(
+        "--output",
+        default="data/papers.json",
+        help="Path to output JSON file (default: %(default)s)",
+    )
     args = parser.parse_args()
+
     publications = fetch_publications(args.scholar_id, args.max_pubs)
-    print(publications)
+
+    output = {
+        "scholar_id": args.scholar_id,
+        "updated": date.today().isoformat(),
+        "papers": publications,
+    }
+
+    with open(args.output, "w", encoding="utf-8") as f:
+        json.dump(output, f, indent=2, ensure_ascii=False)
+
+    print(f"Saved {len(publications)} publications to {args.output}")
