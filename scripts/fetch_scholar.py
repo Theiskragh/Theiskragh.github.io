@@ -1,10 +1,24 @@
 import json
 import argparse
 from datetime import date
-from scholarly import scholarly
+from scholarly import scholarly, ProxyGenerator
 
 
 DEFAULT_SCHOLAR_ID = "IfJBsd0AAAAJ"
+
+
+def setup_proxy():
+    """Configure a free proxy to avoid Google Scholar rate limiting."""
+    try:
+        pg = ProxyGenerator()
+        success = pg.FreeProxies()
+        if success:
+            scholarly.use_proxy(pg)
+            print("Free proxy configured successfully.")
+        else:
+            print("Warning: Could not configure free proxy. Requests may be blocked by Google.")
+    except Exception as e:
+        print(f"Warning: Proxy setup failed ({e}). Requests may be blocked by Google.")
 
 
 def fetch_publications(scholar_id, max_pubs=None):
@@ -69,6 +83,8 @@ if __name__ == "__main__":
         help="Path to output JSON file (default: %(default)s)",
     )
     args = parser.parse_args()
+
+    setup_proxy()
 
     publications = fetch_publications(args.scholar_id, args.max_pubs)
 
